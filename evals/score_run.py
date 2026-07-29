@@ -38,16 +38,22 @@ recall@k, refusal correctness, false-refusal rate, forbidden violations),
 highlights every seeded_failure case, and lists every case where the
 deterministic facts_present check disagrees with the judge's accuracy.
 
-  Refusal-wording coupling
-  ------------------------
-  The three markers below are the DISTINCT refusal wordings that answer.py's
-  SYSTEM_INSTRUCTION tells the model to use. If that prompt's wording changes,
-  update these markers to match, or refusal scoring will silently drift.
-  The eval set files calculation cases under 'refuse_advice' (there is no
-  separate 'refuse_calculation' behavior), so a 'refuse_advice' case is scored
-  correct when EITHER the calculation OR the advice guardrail wording fired --
-  what must NOT happen is the not-covered wording (that is the collapse bug this
-  project fixed).
+  Refusal detection (two operating points)
+  ----------------------------------------
+  Refusals are detected by INTENT via marker SETS, not one exact phrase, so a
+  correct refusal that paraphrases is not miscounted:
+    Type A -> corpus-miss ("the information isn't in the documents");
+    Type B -> calculation/advice guardrail.
+  The two consumers have OPPOSITE error costs, so detection runs at two points:
+    * classify_refusal (BROAD, high-recall) drives refusal_correctness for
+      refusal-EXPECTED cases — a false positive here cannot hide an answer, so
+      breadth is safe and it recognises correct-but-paraphrased refusals.
+    * strict_refusal (NARROW, high-precision) drives the answer-ATTEMPT decision
+      (ACC exclusion / judge queue) — a false positive here would hide a failed
+      answer, so it stays strict; broadening it is the invisible-failure mode.
+  A 'refuse_not_covered' case is correct when Type A fired; a 'refuse_advice' case
+  when Type B fired (calc cases are filed under refuse_advice — there is no separate
+  'refuse_calculation' behavior).
 
 Usage:
     ./.venv/bin/python evals/score_run.py                        # newest run
@@ -78,11 +84,46 @@ RUNS_DIR = os.path.join(HERE, "runs")
 # runs so an already-graded answer is never paid for again.
 JUDGE_CACHE_PATH = os.path.join(HERE, "judge_cache.json")
 
-# --- distinct refusal wordings from answer.py's SYSTEM_INSTRUCTION (normalized) ---
-CALC_MARKERS = ["can't calculate your exact figure", "cannot calculate your exact figure"]
-ADVICE_MARKERS = ["can't advise you on a personal decision",
-                  "cannot advise you on a personal decision"]
-NOT_COVERED_MARKERS = ["not covered in the official documents available"]
+# --- Refusal detection: two intent-based detectors (Type A / Type B) --------------
+# A refusal can be worded many ways; matching one exact phrase miscounts correct
+# refusals that paraphrase. So we detect by INTENT via marker SETS, matched
+# case-insensitively over the normalized answer:
+#   Type A -> corpus-miss decline ("the information isn't in the documents").
+#   Type B -> calculation/advice guardrail ("I won't compute your figure / recommend").
+# Kept separate so refusal_correctness can check the RIGHT type fired for each case.
+#
+# GUARD against over-classification (the dangerous direction: a false refusal-
+# classification HIDES a bad answer, whereas a missed refusal is a visible low
+# score). Type A only fires when the answer states NO concrete figure — an answer
+# that gives a rate/RM amount has ANSWERED, so a trailing "the rest isn't in the
+# docs" is a caveat, not a refusal. Type B is not guarded this way, because a
+# guardrail refusal legitimately explains the concept (incl. a rate) while declining
+# the personal calculation. When in doubt, do NOT classify as a refusal.
+TYPE_A_MARKERS = (
+    "not covered", "not available", "not related to", "no information",
+    "not specified", "not explicitly stated", "not stated in", "not mentioned",
+    "do not mention", "does not mention", "not specifically mention",
+    "cannot find", "can't find", "unable to locate", "unable to find", "not found in",
+    "do not contain", "does not contain", "not in the passage", "not in the document",
+    "not in the provided", "can't provide information", "cannot provide information",
+    "can't provide a specific", "cannot provide a specific",
+    "can't provide the specific", "cannot provide the specific",
+)
+TYPE_B_MARKERS = (
+    "can't calculate", "cannot calculate", "can't compute", "cannot compute",
+    "can't advise", "cannot advise", "can't provide advice", "cannot provide advice",
+    "can't recommend", "cannot recommend", "not able to calculate", "unable to calculate",
+    "can't provide a personal", "cannot provide a personal",
+    "can't give you a specific", "cannot give you a specific",
+)
+# Soft pointers to official resources appear in genuine answers too, so they only
+# count when the reply is short and states no fact (a terse "use the calculator").
+SOFT_MARKERS = (
+    "consult a qualified", "consult a professional", "consult a tax", "seek professional",
+    "professional advice", "official calculator", "lhdn calculator", "pcb calculator",
+    "use the official",
+)
+SUBSTANTIVE_RE = re.compile(r"\d+(?:\.\d+)?\s*%|rm\s?\d")
 
 # Order matters for by-type printing; unknown types are appended in first-seen order.
 TYPE_ORDER = ["factual", "cross_language", "out_of_scope", "advice_calculation",
@@ -104,13 +145,48 @@ def contains(haystack, needle):
     return norm(needle) in norm(haystack)
 
 
-def detect_refusals(text):
-    """Which distinct refusal wordings are present in the answer."""
+def _states_a_fact(text):
+    """True if the answer contains a concrete figure (a rate or an RM amount)."""
+    return bool(SUBSTANTIVE_RE.search(norm(text)))
+
+
+def classify_refusal(text):
+    """Intent-based refusal detection -> {'type_a', 'type_b'} (see marker notes above).
+
+    type_a: corpus-miss decline, GUARDED — suppressed when the answer states a fact.
+    type_b: calculation/advice guardrail (unguarded); soft resource-pointers count
+            only for a short, fact-free reply.
+    """
+    n = norm(text)
+    substantive = _states_a_fact(text)
+    a = any(m in n for m in TYPE_A_MARKERS)
+    b = any(m in n for m in TYPE_B_MARKERS)
+    soft = any(m in n for m in SOFT_MARKERS)
+    short = len(n) <= 300
+    return {
+        "type_a": a and not substantive,
+        "type_b": b or (soft and short and not substantive),
+    }
+
+
+# High-PRECISION markers for the answer-ATTEMPT decision (drives ACC exclusion and
+# the judge queue). Here a false positive HIDES a failed answer (invisible), so this
+# path stays strict: only the unambiguous canonical refusal phrasings count. This is
+# the opposite error-cost from classify_refusal (used for refusal_correctness, where
+# a false positive cannot hide an answer, so breadth is safe). Same reasoning the
+# task states: bias the answer-attempt decision toward the visible failure.
+STRICT_A_MARKERS = ("not covered in the official documents available",)
+STRICT_B_MARKERS = ("can't calculate your exact figure", "cannot calculate your exact figure",
+                    "can't advise you on a personal decision",
+                    "cannot advise you on a personal decision")
+
+
+def strict_refusal(text):
+    """High-precision refusal detection for the attempted/false-refusal decision."""
     n = norm(text)
     return {
-        "calc": any(m in n for m in CALC_MARKERS),
-        "advice": any(m in n for m in ADVICE_MARKERS),
-        "not_covered": any(m in n for m in NOT_COVERED_MARKERS),
+        "type_a": any(m in n for m in STRICT_A_MARKERS),
+        "type_b": any(m in n for m in STRICT_B_MARKERS),
     }
 
 
@@ -130,9 +206,16 @@ def score_case_deterministic(res):
     ans = res.get("answer") or ""
     retrieved = res.get("retrieved", [])
 
-    detected = detect_refusals(ans)
-    guardrail_fired = detected["calc"] or detected["advice"]
-    any_refusal = guardrail_fired or detected["not_covered"]
+    # Two operating points (see marker notes):
+    #   detected (strict, high-precision) drives the answer-ATTEMPT decision, so a
+    #     paraphrase never mis-classifies a failed answer as a refusal (that would
+    #     hide the failure and inflate ACC);
+    #   intent (broad, high-recall) drives refusal_correctness for refusal-EXPECTED
+    #     cases, so a correctly-worded-but-paraphrased refusal is still counted.
+    detected = strict_refusal(ans)
+    intent = classify_refusal(ans)
+    guardrail_fired = detected["type_b"]
+    any_refusal = detected["type_a"] or detected["type_b"]
 
     is_answer = (behavior == "answer")
     is_refusal = bool(behavior) and behavior.startswith("refuse")
@@ -141,9 +224,9 @@ def score_case_deterministic(res):
     if is_answer:
         refusal_correct = not any_refusal            # a correct answer must not refuse
     elif behavior == "refuse_not_covered":
-        refusal_correct = detected["not_covered"]
+        refusal_correct = intent["type_a"]           # corpus-miss decline (broad match)
     elif behavior == "refuse_advice":
-        refusal_correct = guardrail_fired            # calc OR advice wording (not not-covered)
+        refusal_correct = intent["type_b"]           # Type B calc/advice guardrail (broad)
     else:
         refusal_correct = None                       # unknown behavior -> not scored
 
@@ -304,9 +387,9 @@ GROQ_DEFAULT_DELAY_S = 8.0
 
 
 def _attempted_answer(scored_case):
-    """True if the reply is a genuine answer attempt (no refusal wording present)."""
+    """True if the reply is a genuine answer attempt (neither refusal type fired)."""
     d = scored_case["detected"]
-    return not (d["calc"] or d["advice"] or d["not_covered"])
+    return not (d["type_a"] or d["type_b"])
 
 
 def call_judge(system, user, backend, model, api_key):
@@ -518,8 +601,8 @@ def print_seeded(scored):
                 bits.append("FALSE-REFUSAL")
             elif not _attempted_answer(s):
                 d = s["detected"]
-                kind = ("not-covered" if d["not_covered"]
-                        else "calc/advice-guardrail" if (d["calc"] or d["advice"])
+                kind = ("not-covered" if d["type_a"]
+                        else "calc/advice-guardrail" if d["type_b"]
                         else "refusal")
                 retr = ("retrievable" if (s["retrieval_hit"] or s["facts_present"])
                         else "not retrievable")
