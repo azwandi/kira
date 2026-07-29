@@ -23,21 +23,21 @@ The employer must pay both the employee's share and the employer's share to EPF.
 
 The following rates are effective for October 2025 salary/wage (the November 2025 contribution month).
 
-For a Malaysian employee below 60 years old earning a monthly wage of RM5,000 or below, the employee contributes 11% and the employer contributes 13% (Third Schedule, Part A).
+Malaysian employee below 60 years old earning a monthly wage of RM5,000 or below: employee contributes 11%, employer contributes 13% (Third Schedule, Part A).
 
-For a Malaysian employee below 60 years old earning a monthly wage of more than RM5,000, the employee contributes 11% and the employer contributes 12% (Third Schedule, Part A).
+Malaysian, below 60, wage above RM5,000: employee contributes 11%, employer contributes 12% (Third Schedule, Part A).
 
-For a Malaysian employee aged 60 and above, at any wage level (no wage limit), the employee contributes 0% and the employer contributes 4% (Third Schedule, Part E).
+Malaysian employee aged 60 and above, at any wage level: employee contributes 0%, employer contributes 4% (Third Schedule, Part E).
 
-For a Permanent Resident (PR) or a non-Malaysian who registered as an EPF member before 1 August 1998, when below 60 years old and earning a monthly wage of RM5,000 or below, the employee contributes 11% and the employer contributes 13% (Third Schedule, Part A).
+Permanent Resident or non-Malaysian registered before 1 August 1998, below 60, wage RM5,000 or below: employee contributes 11%, employer contributes 13% (Third Schedule, Part A).
 
-For a Permanent Resident (PR) or a non-Malaysian who registered as an EPF member before 1 August 1998, when below 60 years old and earning a monthly wage of more than RM5,000, the employee contributes 11% and the employer contributes 12% (Third Schedule, Part A).
+Permanent Resident or non-Malaysian registered before 1 August 1998, below 60, wage above RM5,000: employee contributes 11%, employer contributes 12% (Third Schedule, Part A).
 
-For a Permanent Resident (PR) or a non-Malaysian who registered as an EPF member before 1 August 1998, when aged 60 and above and earning a monthly wage of RM5,000 or below, the employee contributes 5.5% and the employer contributes 6.5% (Third Schedule, Part C).
+Permanent Resident or non-Malaysian registered before 1 August 1998, aged 60 and above, wage RM5,000 or below: employee contributes 5.5%, employer contributes 6.5% (Third Schedule, Part C).
 
-For a Permanent Resident (PR) or a non-Malaysian who registered as an EPF member before 1 August 1998, when aged 60 and above and earning a monthly wage of more than RM5,000, the employee contributes 5.5% and the employer contributes 6% (Third Schedule, Part C).
+Permanent Resident or non-Malaysian registered before 1 August 1998, aged 60 and above, wage above RM5,000: employee contributes 5.5%, employer contributes 6% (Third Schedule, Part C).
 
-For a non-Malaysian who registered as an EPF member from 1 August 1998 onwards, at any wage level (no wage limit), whether below 60 or aged 60 and above, the employee contributes 2% and the employer contributes 2% (Third Schedule, Part F).
+Non-Malaysian who registered as an EPF member from 1 August 1998 onwards, any age and any wage: employee contributes 2%, employer contributes 2% (Third Schedule, Part F).
 
 ## Notes on the Contribution Rates
 

@@ -82,7 +82,7 @@ def search(question, top_k=5, translate="auto"):
     The original `question` is only used for the retrieval query text here."""
     do_translate = translate is True or (translate == "auto" and not is_english_query(question))
     query_text = translate_to_english(question) if do_translate else question
-    embedding = ingest.embed(query_text)  # same model + retry logic as ingest.py
+    embedding = ingest.embed(query_text, role="query")  # same model + retry logic as ingest.py
 
     conn = ingest.db_connect()
     try:

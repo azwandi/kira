@@ -38,6 +38,13 @@ OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "nomic-embed-text")
 EMBED_ENDPOINT = f"{OLLAMA_URL}/api/embeddings"
 EMBED_DIM = 768  # nomic-embed-text produces 768-dimensional embeddings
 
+# nomic-embed-text task prefixes. PAIRED: chunks embed with 'search_document:',
+# queries with 'search_query:'. DEFAULT ON (the model's trained convention). Set
+# EMBED_TASK_PREFIXES=0 only for the no-prefix A/B baseline — and if you do, both the
+# ingest and the query side must use the same setting so the vector spaces align.
+EMBED_TASK_PREFIXES = os.environ.get("EMBED_TASK_PREFIXES", "1").lower() not in ("0", "false", "no", "")
+TASK_PREFIXES = {"document": "search_document: ", "query": "search_query: "}
+
 MAX_RETRIES = 5  # simple retry in case Ollama is briefly busy
 
 DDL = """
@@ -129,8 +136,13 @@ def parse_file(path):
 # --------------------------------------------------------------------------- #
 # Embeddings
 # --------------------------------------------------------------------------- #
-def embed(text):
-    """Get an embedding from Ollama, retrying if it is briefly busy/unavailable."""
+def embed(text, role="query"):
+    """Get an embedding from Ollama, retrying if it is briefly busy/unavailable.
+
+    role selects the nomic task prefix when EMBED_TASK_PREFIXES is on:
+    'document' at ingestion, 'query' at search time. Off by default (raw text)."""
+    if EMBED_TASK_PREFIXES:
+        text = TASK_PREFIXES.get(role, "") + text
     last_err = None
     for attempt in range(1, MAX_RETRIES + 1):
         try:
@@ -212,7 +224,7 @@ def main():
     for scheme, source_label, chunks in parsed:
         print(f"\n== {scheme}.md — {len(chunks)} chunk(s) — source_label: {source_label}")
         for chunk in chunks:
-            emb = embed(chunk)
+            emb = embed(chunk, role="document")
             if total == 0 and len(emb) != EMBED_DIM:
                 print(
                     f"NOTE: embedding dimension is {len(emb)}, but the table expects "
