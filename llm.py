@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """
 llm.py — Minimal multi-backend chat client shared by generation (answer.py) and
-the eval judge (evals/score_run.py). Backends: gemini | groq | ollama, all reached
-with plain requests (no SDKs), matching this project's dependency-light style.
+the eval judge (evals/score_run.py). Backends: gemini | groq | openrouter | ollama,
+all reached with plain requests (no SDKs), matching this project's dependency-light
+style. Groq and OpenRouter share one OpenAI-compatible caller.
 
 It centralises transient-error retries and rate-limit handling: HTTP 429 is
 retried honoring the server's Retry-After for short (per-minute) waits, and a long
@@ -17,11 +18,16 @@ avoid self-preference bias):
   judge      : JUDGE_BACKEND (default groq)   + optional JUDGE_MODEL override
 
 Backend default models (used when the per-role override is unset):
-  gemini : GEMINI_MODEL       (default gemini-2.5-flash)
-  groq   : GROQ_MODEL         (default llama-3.3-70b-versatile)
-  ollama : OLLAMA_CHAT_MODEL  (default qwen2.5:7b-instruct)
+  gemini     : GEMINI_MODEL       (default gemini-2.5-flash)
+  groq       : GROQ_MODEL         (default llama-3.3-70b-versatile)
+  openrouter : OPENROUTER_MODEL   (default meta-llama/llama-3.3-70b-instruct)
+  ollama     : OLLAMA_CHAT_MODEL  (default qwen2.5:7b-instruct)
 
-Keys: GEMINI_API_KEY (gemini), GROQ_API_KEY (groq), none for ollama (local).
+Because the model is chosen per role (GEN_MODEL / JUDGE_MODEL), a single provider
+key can drive two different models — e.g. generation and the judge on two different
+OpenRouter models under one OPENROUTER_API_KEY.
+
+Keys: GEMINI_API_KEY, GROQ_API_KEY, OPENROUTER_API_KEY; none for ollama (local).
 """
 
 import os
@@ -31,12 +37,13 @@ import time
 import requests
 
 GROQ_ENDPOINT = "https://api.groq.com/openai/v1/chat/completions"
+OPENROUTER_ENDPOINT = "https://openrouter.ai/api/v1/chat/completions"
 GEMINI_ENDPOINT_TMPL = (
     "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
 )
 OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434").rstrip("/")
 
-BACKENDS = ("gemini", "groq", "ollama")
+BACKENDS = ("gemini", "groq", "ollama", "openrouter")
 MAX_RETRIES = 5
 MAX_RATELIMIT_WAIT_S = 65  # honor short (per-minute) waits; bail on long (daily) caps
 RATE_LIMIT_MARKERS = ("429", "rate limit", "ratelimit", "too many requests",
@@ -123,7 +130,12 @@ def _gemini_chat(system, user, model, api_key, temperature, max_tokens, json_mod
     return _with_retries(do, "Gemini")
 
 
-def _groq_chat(system, user, model, api_key, temperature, max_tokens, json_mode):
+def _openai_compatible_chat(what, endpoint, api_key, system, user, model,
+                            temperature, max_tokens, json_mode, extra_headers=None):
+    """Shared OpenAI-style /chat/completions caller (Groq, OpenRouter, ...)."""
+    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+    if extra_headers:
+        headers.update(extra_headers)
     body = {
         "model": model,
         "messages": [{"role": "system", "content": system},
@@ -133,17 +145,29 @@ def _groq_chat(system, user, model, api_key, temperature, max_tokens, json_mode)
     }
     if json_mode:
         body["response_format"] = {"type": "json_object"}
-    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
 
     def do():
-        resp = requests.post(GROQ_ENDPOINT, headers=headers, json=body, timeout=120)
+        resp = requests.post(endpoint, headers=headers, json=body, timeout=120)
         if resp.status_code == 429:
             raise RateLimited(parse_retry_after(resp), f"HTTP 429: {resp.text[:200]}")
         if resp.status_code in (500, 502, 503):
             raise RuntimeError(f"HTTP {resp.status_code}: {resp.text[:200]}")
         resp.raise_for_status()
         return resp.json()["choices"][0]["message"]["content"]
-    return _with_retries(do, "Groq")
+    return _with_retries(do, what)
+
+
+def _groq_chat(system, user, model, api_key, temperature, max_tokens, json_mode):
+    return _openai_compatible_chat("Groq", GROQ_ENDPOINT, api_key, system, user, model,
+                                   temperature, max_tokens, json_mode)
+
+
+def _openrouter_chat(system, user, model, api_key, temperature, max_tokens, json_mode):
+    # Optional OpenRouter ranking headers — harmless, help attribute usage.
+    extra = {"HTTP-Referer": "https://github.com/azwandi/kira", "X-Title": "Kira"}
+    return _openai_compatible_chat("OpenRouter", OPENROUTER_ENDPOINT, api_key, system, user,
+                                   model, temperature, max_tokens, json_mode,
+                                   extra_headers=extra)
 
 
 def _ollama_chat(system, user, model, temperature, json_mode):
@@ -172,6 +196,8 @@ def chat(system, user, *, backend, model, api_key=None,
         return _gemini_chat(system, user, model, api_key, temperature, max_tokens, json_mode)
     if backend == "groq":
         return _groq_chat(system, user, model, api_key, temperature, max_tokens, json_mode)
+    if backend == "openrouter":
+        return _openrouter_chat(system, user, model, api_key, temperature, max_tokens, json_mode)
     if backend == "ollama":
         return _ollama_chat(system, user, model, temperature, json_mode)
     raise RuntimeError(f"unknown backend {backend!r} (expected: {' | '.join(BACKENDS)})")
@@ -185,6 +211,8 @@ def default_model(backend):
         return os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
     if backend == "groq":
         return os.environ.get("GROQ_MODEL", "llama-3.3-70b-versatile")
+    if backend == "openrouter":
+        return os.environ.get("OPENROUTER_MODEL", "meta-llama/llama-3.3-70b-instruct")
     if backend == "ollama":
         return os.environ.get("OLLAMA_CHAT_MODEL", "qwen2.5:7b-instruct")
     return None
@@ -200,6 +228,10 @@ def _key_for(backend):
         key = os.environ.get("GROQ_API_KEY")
         return key, (None if key else
                      "GROQ_API_KEY not set — free key: https://console.groq.com/keys")
+    if backend == "openrouter":
+        key = os.environ.get("OPENROUTER_API_KEY")
+        return key, (None if key else
+                     "OPENROUTER_API_KEY not set — get one at https://openrouter.ai/keys")
     if backend == "ollama":
         return None, None  # local, no key
     return None, f"unknown backend {backend!r}"

@@ -21,9 +21,11 @@ Deterministic checks (no LLM), per case:
   retrieval_hit       the gold_chunk_hint substring appears in some retrieved chunk
                       (skipped when gold_chunk_hint is null) -> retrieval recall@k
   facts_present       every expected_facts substring appears in the answer
-  false_refusal       expected 'answer' AND the reply used the not-covered wording
-                      AND the gold content was retrievable (retrieval_hit or
-                      facts_present) -> scored accuracy 0 here; never sent to the judge
+  false_refusal       expected 'answer' AND the reply is ANY refusal (not-covered OR
+                      the calculation/advice guardrail wording) AND the gold content
+                      was retrievable (retrieval_hit or facts_present) -> scored
+                      accuracy 0 here; never sent to the judge. (A refusal with
+                      neither retrievable signal is a retrieval-miss, left unjudged.)
 
 LLM-as-judge (Groq / Gemini / Ollama; default Groq) grades ONLY answer cases the
 system actually ATTEMPTED (refusals are never sent to it — it only sees the retrieved
@@ -167,12 +169,14 @@ def score_case_deterministic(res):
 
     # FALSE REFUSAL — owned by this deterministic layer, NOT the judge. The judge
     # only sees the retrieved chunks, so it structurally cannot tell a false refusal
-    # from a correct one (given those chunks, 'not covered' looks correct). A false
+    # from a correct one (given those chunks, any refusal looks correct). A false
     # refusal is an answerable case the system refused anyway: expected an answer, the
-    # reply used the not-covered wording, yet the gold content WAS retrievable (the
-    # gold chunk came back, or the expected facts are present). These are scored
-    # accuracy 0 here and never sent to the judge.
-    false_refusal = (is_answer and detected["not_covered"]
+    # reply is ANY refusal (not-covered OR the calculation/advice guardrail wording),
+    # yet the gold content WAS retrievable (the gold chunk came back, or the expected
+    # facts are present). These are scored accuracy 0 here and never sent to the judge.
+    # If neither retrievable signal is present it is a retrieval-miss refusal, left
+    # unjudged (excluded from ACC) and surfaced via recall@k instead.
+    false_refusal = (is_answer and any_refusal
                      and (retrieval_hit is True or facts_present is True))
     if false_refusal:
         judge_accuracy = 0
@@ -543,7 +547,8 @@ def main():
                     help="path to a runs/run_*.json file (default: the newest one)")
     ap.add_argument("--no-judge", action="store_true",
                     help="skip the LLM-as-judge (deterministic checks only)")
-    ap.add_argument("--judge-backend", default=None, choices=["groq", "gemini", "ollama"],
+    ap.add_argument("--judge-backend", default=None,
+                    choices=["groq", "gemini", "ollama", "openrouter"],
                     help="judge model backend; overrides JUDGE_BACKEND (default: groq)")
     ap.add_argument("--judge-delay", type=float, default=None, metavar="SECONDS",
                     help="pause between judge calls to respect tokens/min limits "
