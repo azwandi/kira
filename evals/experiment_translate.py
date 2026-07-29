@@ -62,11 +62,11 @@ def main():
     for c in cases:
         q, hint = c["question"], c.get("gold_chunk_hint")
 
-        base_rows = search.search(q, top_k=args.top_k)                 # no translation
+        base_rows = search.search(q, top_k=args.top_k, translate=False)   # no translation
         bh, brank, btop = hit_rank_top(base_rows, hint)
 
         english = search.translate_to_english(q)
-        tr_rows = search.search(english, top_k=args.top_k)             # on translation
+        tr_rows = search.search(english, top_k=args.top_k, translate=False)  # on translation
         th, trank, ttop = hit_rank_top(tr_rows, hint)
 
         base_hits += bh
