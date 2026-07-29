@@ -131,7 +131,7 @@ def generate(system_instruction, user_content, backend=None, model=None, api_key
         if err:
             raise RuntimeError(err)
     return llm.chat(system_instruction, user_content, backend=backend, model=model,
-                    api_key=api_key, temperature=0.2, max_tokens=2048)
+                    api_key=api_key, temperature=0.0, max_tokens=2048)
 
 
 def call_gemini(system_instruction, user_content, api_key):

@@ -71,6 +71,23 @@ def is_english_query(text):
     return not any(t in _MALAY_MARKERS for t in tokens)
 
 
+# Targeted acronym expansion — ONLY for acronyms POORLY represented in the corpus, so
+# a query using them can still match. SIP is the Malay acronym for EIS and appears in
+# the corpus just once (the eis.md title), so an "SIP" query otherwise can't retrieve
+# the EIS rate chunk. Do NOT add acronyms already common in the corpus (EPF, SOCSO,
+# EIS, PCB, KWSP, PERKESO) — expanding/rewriting those hurt retrieval (see F13).
+ACRONYM_MAP = {"sip": "EIS"}
+
+
+def expand_acronyms(text):
+    """Replace whole-word poorly-represented acronyms (case-insensitive). Pure string
+    op — no model call. Applied to the query before embedding."""
+    if not text or not ACRONYM_MAP:
+        return text
+    pattern = r"\b(" + "|".join(re.escape(k) for k in ACRONYM_MAP) + r")\b"
+    return re.sub(pattern, lambda m: ACRONYM_MAP[m.group(0).lower()], text, flags=re.IGNORECASE)
+
+
 def search(question, top_k=5, translate="auto"):
     """Return a list of (similarity, scheme, source_label, content) rows.
 
@@ -82,6 +99,7 @@ def search(question, top_k=5, translate="auto"):
     The original `question` is only used for the retrieval query text here."""
     do_translate = translate is True or (translate == "auto" and not is_english_query(question))
     query_text = translate_to_english(question) if do_translate else question
+    query_text = expand_acronyms(query_text)  # targeted SIP->EIS; no-op otherwise
     embedding = ingest.embed(query_text, role="query")  # same model + retry logic as ingest.py
 
     conn = ingest.db_connect()
