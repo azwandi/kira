@@ -7,7 +7,9 @@ SOCSO is administered under the Employees' Social Security Act 1969 (Act 4). Emp
 
 ## First Category (Employees Below 60 Years of Age)
 
-For an employee who is less than 60 years of age, contributions payable by the employer and the employee cover both the Employment Injury Scheme and the Invalidity Scheme. Under this First Category, the employer contributes 1.75% of the employee's monthly wages and the employee contributes 0.5% of the employee's monthly wages, according to the contribution schedule.
+For a SOCSO-covered employee below 60 years of age, the employer contributes 1.75% of the employee's monthly wages and the employee contributes 0.5% of the employee's monthly wages, according to the contribution schedule (First Category).
+
+Under the First Category, contributions for an employee below 60 years of age cover both the Employment Injury Scheme and the Invalidity Scheme.
 
 All employees who have not reached the age of 60 must contribute under the First Category, except for those who have attained 55 years of age and have no prior contributions before they reached 55 due to non-eligibility under the Employees' Social Security Act 1969.
 
