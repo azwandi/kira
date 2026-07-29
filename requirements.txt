@@ -1,0 +1,4 @@
+# Runtime dependencies (install into .venv). Embeddings run on a local Ollama
+# server and LLM calls go out over plain HTTP, so no model SDKs are needed.
+psycopg2-binary>=2.9
+requests>=2.31

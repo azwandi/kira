@@ -1,0 +1,13 @@
+# Secrets — never commit
+.env
+
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+
+# Local Claude Code tooling / settings
+.claude/
+
+# Generated eval artifacts (frozen runs + judge caches are reproducible)
+evals/runs/
