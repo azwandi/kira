@@ -58,6 +58,7 @@ Usage:
 
 import argparse
 import glob
+import hashlib
 import json
 import os
 import re
@@ -73,6 +74,9 @@ import ingest   # noqa: E402  (load_dotenv)
 import llm      # noqa: E402  (multi-backend chat client for the judge)
 
 RUNS_DIR = os.path.join(HERE, "runs")
+# Persistent, content-addressed judge-verdict cache (see run_judge). Shared across
+# runs so an already-graded answer is never paid for again.
+JUDGE_CACHE_PATH = os.path.join(HERE, "judge_cache.json")
 
 # --- distinct refusal wordings from answer.py's SYSTEM_INSTRUCTION (normalized) ---
 CALC_MARKERS = ["can't calculate your exact figure", "cannot calculate your exact figure"]
@@ -215,6 +219,11 @@ def score_case_deterministic(res):
 # --------------------------------------------------------------------------- #
 # LLM-as-judge (backend-agnostic; default Groq)
 # --------------------------------------------------------------------------- #
+# Bump this whenever JUDGE_SYSTEM (the rubric) changes. It is part of every judge
+# cache key, so bumping it invalidates all stored verdicts instead of silently
+# serving verdicts graded under the old rubric.
+RUBRIC_VERSION = "v1"
+
 JUDGE_SYSTEM = """\
 You are a strict grader for a retrieval-augmented QA system about Malaysian \
 statutory payroll (EPF/KWSP, SOCSO/PERKESO, EIS, PCB/LHDNM). You are given a \
@@ -306,21 +315,54 @@ def call_judge(system, user, backend, model, api_key):
                     temperature=0.0, max_tokens=512, json_mode=True)
 
 
-def _save_judge_cache(path, cache):
-    tmp = path + ".tmp"
+def judge_cache_key(res):
+    """Content hash of everything the judge is shown, so an identical answer is
+    never re-judged. Keyed on case_id + question + the exact answer text + the
+    retrieved chunks shown to the judge + the rubric version. Changing any of these
+    (a new answer, different chunks, or a bumped RUBRIC_VERSION) changes the key and
+    correctly forces a fresh verdict instead of serving a stale one."""
+    payload = json.dumps({
+        "case_id": res.get("id"),
+        "question": res.get("question"),
+        "answer": res.get("answer"),
+        "chunks": [{"rank": c.get("rank"),
+                    "source_label": c.get("source_label"),
+                    "content": c.get("content")}
+                   for c in res.get("retrieved", [])],
+        "rubric_version": RUBRIC_VERSION,
+    }, sort_keys=True, ensure_ascii=False)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def load_judge_cache():
+    if not os.path.exists(JUDGE_CACHE_PATH):
+        return {}
+    try:
+        with open(JUDGE_CACHE_PATH, encoding="utf-8") as f:
+            return json.load(f)
+    except (ValueError, OSError):
+        return {}
+
+
+def save_judge_cache(cache):
+    tmp = JUDGE_CACHE_PATH + ".tmp"
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(cache, f, indent=2, ensure_ascii=False)
-    os.replace(tmp, path)  # atomic: never leave a half-written cache
+    os.replace(tmp, JUDGE_CACHE_PATH)  # atomic: never leave a half-written cache
 
 
-def run_judge(scored, results_by_id, backend, model, api_key, run_file,
-              delay=0.0, rejudge=False):
-    """Grade every answer case, caching each score to a <run>.judge.json sidecar.
+def run_judge(scored, results_by_id, backend, model, api_key, delay=0.0, use_cache=True):
+    """Grade attempted-answer cases, reusing a persistent content-addressed cache.
 
-    Because Groq's free tier can cut you off mid-run, every grade is checkpointed
-    immediately and reused on the next invocation, so scoring resumes instead of
-    restarting. On a hard rate/quota cap it stops cleanly rather than thrashing.
-    Fills judge_accuracy / judge_reason in place.
+    Each verdict is keyed by judge_cache_key(), so an answer already graded (in ANY
+    run) is a cache hit and costs nothing. Only unseen keys call the judge; each new
+    verdict is written immediately (so a rate-limit stop resumes from the cache). The
+    cache file is always loaded and merged, so we never clobber other entries.
+
+    use_cache=False (the --no-cache flag) forces fresh judging: existing verdicts are
+    ignored and re-graded, but the freshly graded verdicts are still written back.
+
+    Fills judge_accuracy / judge_reason in place. Returns {"new": n, "hits": n}.
     """
     # Judge ONLY answer cases where the system actually attempted an answer. Refusals
     # never reach the judge — deterministic false refusals are already scored 0, and
@@ -329,56 +371,46 @@ def run_judge(scored, results_by_id, backend, model, api_key, run_file,
     judgeable = [s for s in scored
                  if s["is_answer"] and not s["error"] and _attempted_answer(s)]
     if not judgeable:
-        return
+        print("\nJudge: no attempted-answer cases to grade.")
+        return {"new": 0, "hits": 0}
 
-    cache_path = run_file + ".judge.json"
-    cache = {}
-    if os.path.exists(cache_path) and not rejudge:
-        try:
-            with open(cache_path, encoding="utf-8") as f:
-                cache = json.load(f)
-        except (ValueError, OSError):
-            cache = {}
+    cache = load_judge_cache()  # always load so we merge, never clobber other entries
+    new_calls = hits = 0
+    n = len(judgeable)
+    print(f"\nJudging with {backend}:{model} — {n} attempted answer(s)"
+          + (f", pacing {delay:g}s" if delay else "")
+          + ("" if use_cache else ", cache DISABLED (--no-cache)") + "...")
 
-    # Apply cached grades; queue only the ungraded (or previously-failed) cases.
-    pending = []
-    for s in judgeable:
-        c = cache.get(s["id"])
-        if c and c.get("accuracy") is not None:
-            s["judge_accuracy"], s["judge_reason"] = c["accuracy"], c.get("reason", "")
-        else:
-            pending.append(s)
-    reused = len(judgeable) - len(pending)
-
-    note = []
-    if reused:
-        note.append(f"{reused} reused from {os.path.basename(cache_path)}")
-    if delay:
-        note.append(f"pacing {delay:g}s")
-    print(f"\nJudging with {backend}:{model} — {len(pending)} to grade"
-          + (f" ({', '.join(note)})" if note else "") + "...")
-
-    graded = 0
-    for k, s in enumerate(pending, start=1):
+    for k, s in enumerate(judgeable, start=1):
         res = results_by_id[s["id"]]
+        key = judge_cache_key(res)
+        if use_cache and cache.get(key, {}).get("accuracy") is not None:
+            v = cache[key]
+            s["judge_accuracy"], s["judge_reason"] = v["accuracy"], v.get("reason", "")
+            hits += 1
+            continue
         try:
             raw = call_judge(JUDGE_SYSTEM, build_judge_content(res), backend, model, api_key)
             acc, reason = parse_judge_json(raw)
         except Exception as e:
             acc, reason = None, f"judge call failed: {type(e).__name__}: {e}"
         s["judge_accuracy"], s["judge_reason"] = acc, reason
-        cache[s["id"]] = {"accuracy": acc, "reason": reason}
-        _save_judge_cache(cache_path, cache)  # checkpoint after every call
-        graded = k
-        print(f"  [{k}/{len(pending)}] {s['id']}: accuracy={'?' if acc is None else acc}")
+        if acc is not None:
+            cache[key] = {"accuracy": acc, "reason": reason, "case_id": s["id"],
+                          "model": model, "rubric_version": RUBRIC_VERSION}
+            save_judge_cache(cache)  # persist after each new verdict (= checkpoint)
+            new_calls += 1
+        print(f"  [{k}/{n}] {s['id']}: accuracy={'?' if acc is None else acc}"
+              + ("  (new)" if acc is not None else ""))
         if acc is None and llm.looks_rate_limited(reason):
-            done = reused + graded - 1
-            print(f"  -> judge hit a rate/quota limit; stopping. {done}/"
-                  f"{len(judgeable)} graded and cached. Re-run score_run.py to "
-                  "resume (or wait for the daily window to reset).", file=sys.stderr)
+            print(f"  -> judge hit a rate/quota limit; stopping. {new_calls} new + "
+                  f"{hits} cached so far. Re-run to resume from cache.", file=sys.stderr)
             break
-        if delay and k < len(pending):
+        if delay and k < n:
             time.sleep(delay)
+
+    print(f"judge: {new_calls} new call(s), {hits} cache hit(s)")
+    return {"new": new_calls, "hits": hits}
 
 
 # --------------------------------------------------------------------------- #
@@ -410,7 +442,34 @@ def aggregate(group):
     }
 
 
-def print_scorecard(scored):
+def compute_subset_label(meta, score_types, score_ids, n_scored):
+    """Describe the active subset (score-time filter or a run captured as a subset),
+    or None for a full run. Used to label the scorecard as a partial run."""
+    parts = []
+    if score_types:
+        parts.append(",".join(sorted(score_types)))
+    if score_ids:
+        parts.append("ids=" + ",".join(score_ids))
+    if not parts:  # no score-time filter — reflect how the run itself was captured
+        rs = meta.get("subset") or {}
+        if rs.get("types"):
+            parts.append(",".join(rs["types"]))
+        if rs.get("ids"):
+            parts.append("ids=" + ",".join(rs["ids"]))
+        if rs.get("only"):
+            parts.append("only=" + ",".join(rs["only"]))
+        if rs.get("limit") is not None:
+            parts.append(f"limit={rs['limit']}")
+    full_n = meta.get("num_cases_in_set")
+    partial = bool(parts) or (full_n is not None and n_scored < full_n)
+    if not partial:
+        return None
+    desc = "; ".join(parts) if parts else "partial"
+    span = f"{n_scored} of {full_n} cases" if full_n else f"{n_scored} cases"
+    return f"{desc} ({span})"
+
+
+def print_scorecard(scored, subset_label=None):
     types = list(TYPE_ORDER)
     for s in scored:
         if s["type"] not in types:
@@ -421,6 +480,8 @@ def print_scorecard(scored):
     header = (f"{'TYPE':<18}{'N':>4}  {'ACC/2':>7}  {'RECALL@k':>11}  "
               f"{'REFUSE-OK':>11}  {'FALSE-REFUSE':>13}  {'FORBID':>7}")
     print("\n" + "=" * len(header))
+    if subset_label:
+        print(f"SUBSET: {subset_label}  —  PARTIAL RUN, not a full baseline")
     print("SCORECARD  (ACC = mean over attempted answers + false-refusals@0; "
           "RECALL@k = gold chunk in top-k)")
     print("=" * len(header))
@@ -553,8 +614,14 @@ def main():
     ap.add_argument("--judge-delay", type=float, default=None, metavar="SECONDS",
                     help="pause between judge calls to respect tokens/min limits "
                          "(default: 8s for groq, 0 otherwise)")
-    ap.add_argument("--rejudge", action="store_true",
-                    help="ignore cached judge scores (<run>.judge.json) and grade afresh")
+    ap.add_argument("--type", dest="types", default=None,
+                    help="score only these comma-separated type(s), e.g. cross_language")
+    ap.add_argument("--ids", default=None,
+                    help="score only these comma-separated case IDs, e.g. X01,X02,F05")
+    ap.add_argument("--no-cache", action="store_true",
+                    help="force fresh judging: ignore cached verdicts (fresh ones are "
+                         "still written back to the cache)")
+    ap.add_argument("--rejudge", action="store_true", help=argparse.SUPPRESS)  # alias
     args = ap.parse_args()
 
     ingest.load_dotenv()
@@ -573,10 +640,24 @@ def main():
     if not results:
         sys.exit(f"ERROR: no results in {run_file}")
 
+    # --- subset filtering (score only part of a saved run) — Feature 1 ---
+    score_types = {t.strip() for t in args.types.split(",") if t.strip()} if args.types else None
+    score_ids = [i.strip() for i in args.ids.split(",") if i.strip()] if args.ids else None
+    if score_types:
+        results = [r for r in results if r.get("type") in score_types]
+    if score_ids:
+        idset = set(score_ids)
+        results = [r for r in results if r.get("id") in idset]
+    if not results:
+        sys.exit("ERROR: subset filter (--type/--ids) matched no cases in this run.")
+    subset_label = compute_subset_label(meta, score_types, score_ids, len(results))
+
     print(f"Scoring run: {run_file}")
     print(f"  captured {meta.get('timestamp')} | top_k={meta.get('top_k')} | "
           f"gen={meta.get('gen_model')} | cases={meta.get('num_cases')} | "
           f"errors={meta.get('num_errors')}")
+    if subset_label:
+        print(f"  SUBSET: {subset_label}")
 
     scored = [score_case_deterministic(r) for r in results]
     results_by_id = {r.get("id"): r for r in results}
@@ -592,10 +673,10 @@ def main():
         else:
             delay = (args.judge_delay if args.judge_delay is not None
                      else (GROQ_DEFAULT_DELAY_S if b == "groq" else 0.0))
-            run_judge(scored, results_by_id, b, model, key, run_file,
-                      delay=delay, rejudge=args.rejudge)
+            run_judge(scored, results_by_id, b, model, key,
+                      delay=delay, use_cache=not (args.no_cache or args.rejudge))
 
-    print_scorecard(scored)
+    print_scorecard(scored, subset_label=subset_label)
     print_seeded(scored)
     print_disagreements(scored)
     print_extras(scored)

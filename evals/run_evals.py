@@ -168,10 +168,15 @@ def main():
                     help="path to eval_set.json (default: evals/eval_set.json)")
     ap.add_argument("--top-k", type=int, default=5,
                     help="chunks to retrieve per case (default: 5)")
+    ap.add_argument("--type", dest="types", default=None,
+                    help="run only these comma-separated type(s): factual, "
+                         "cross_language, out_of_scope, advice_calculation, adversarial")
+    ap.add_argument("--ids", default=None,
+                    help="run only these comma-separated case IDs (e.g. X01,X02,F05)")
     ap.add_argument("--only", nargs="*", default=None,
                     help="run only these case ids (e.g. --only F02 X01)")
     ap.add_argument("--limit", type=int, default=None,
-                    help="run only the first N cases (after --only filtering)")
+                    help="run only the first N cases (after other filtering)")
     ap.add_argument("--resume", default=None, metavar="RUN_JSON",
                     help="continue a partial run file; completed cases are reused, "
                          "and results are written back to that same file")
@@ -205,6 +210,20 @@ def main():
         "embed_model": ingest.OLLAMA_MODEL,
         "num_cases_in_set": len(all_cases),
     }
+
+    # Record which subset (if any) this run covers, so the run file and its scorecard
+    # can never be mistaken for a full baseline. See Feature 1.
+    run_types = {t.strip() for t in args.types.split(",") if t.strip()} if args.types else None
+    run_ids = [i.strip() for i in args.ids.split(",") if i.strip()] if args.ids else None
+    subset = None
+    if run_types or run_ids or args.only or args.limit is not None:
+        subset = {
+            "types": sorted(run_types) if run_types else None,
+            "ids": run_ids or None,
+            "only": args.only or None,
+            "limit": args.limit,
+        }
+
     if args.resume:
         out_path = args.resume
         if not os.path.exists(out_path):
@@ -221,8 +240,24 @@ def main():
     else:
         completed = set()
 
+    # Preserve a prior subset on resume when no new filter is given; otherwise record
+    # this run's subset. partial is true whenever a subset is in effect.
+    if subset is not None:
+        base_meta["subset"] = subset
+    else:
+        base_meta.setdefault("subset", None)
+    base_meta["partial"] = base_meta.get("subset") is not None
+
     # --- select which cases still need running ---
     cases = all_cases
+    if run_types:
+        cases = [c for c in cases if c.get("type") in run_types]
+    if run_ids:
+        idset = set(run_ids)
+        cases = [c for c in cases if c.get("id") in idset]
+        missing = idset - {c.get("id") for c in all_cases}
+        if missing:
+            print(f"WARNING: --ids not found: {sorted(missing)}", file=sys.stderr)
     if args.only:
         wanted = set(args.only)
         cases = [c for c in cases if c.get("id") in wanted]
@@ -245,6 +280,18 @@ def main():
         out_path = os.path.join(RUNS_DIR, f"run_{timestamp}.json")
 
     started = time.time()
+    if base_meta.get("partial"):
+        sd = base_meta["subset"]
+        desc = []
+        if sd.get("types"):
+            desc.append("type=" + ",".join(sd["types"]))
+        if sd.get("ids"):
+            desc.append("ids=" + ",".join(sd["ids"]))
+        if sd.get("only"):
+            desc.append("only=" + ",".join(sd["only"]))
+        if sd.get("limit") is not None:
+            desc.append(f"limit={sd['limit']}")
+        print(f"SUBSET: {'; '.join(desc)}  —  PARTIAL run (recorded in run file)")
     print(f"Running {len(to_run)} case(s) at top_k={args.top_k} "
           f"(gen: {gen_backend}:{gen_model}, embed: {ingest.OLLAMA_MODEL})"
           f"{f', delay {args.delay}s' if args.delay else ''}")

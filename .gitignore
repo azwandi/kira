@@ -11,3 +11,4 @@ __pycache__/
 
 # Generated eval artifacts (frozen runs + judge caches are reproducible)
 evals/runs/
+evals/judge_cache.json
