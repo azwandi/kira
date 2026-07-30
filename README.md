@@ -26,10 +26,12 @@ config the harness reports **90% retrieval recall@5, a 0% false-refusal rate, an
 
 ```mermaid
 flowchart LR
-  C["corpus/*.md<br/>(official sources)"] -->|"ingest.py<br/>Ollama embed<br/>(search_document:)"| DB[("Supabase<br/>kira_chunks<br/>pgvector(768)")]
-  Q["question"] -->|"search.py<br/>normalize + embed<br/>(search_query:)"| DB
+  C["corpus/*.md<br/>(official sources)"] -->|"ingest.py · Ollama embed<br/>(search_document:)"| DB[("Supabase<br/>kira_chunks<br/>pgvector(768)")]
+  UI["clients<br/>CLI · local web (serve.py)"] --> Q["question"]
+  Q -->|"search.py · normalize + embed<br/>(search_query:)"| DB
   DB -->|"top-k cosine (&lt;=&gt;)"| R["retrieved chunks"]
-  R -->|"answer.py grounded generation<br/>llm.chat, temperature 0"| A["answer + Source: line"]
+  R -->|"answer.py grounded generation<br/>llm.chat · temperature 0"| A["answer + Source: line"]
+  A -.-> UI
   subgraph Evaluation
     E["eval_set.json"] --> RUN["run_evals.py<br/>(capture)"] --> RUNS[("runs/*.json")]
     RUNS --> SC["score_run.py<br/>(deterministic + LLM judge)"] --> CARD["scorecard"]
