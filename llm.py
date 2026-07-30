@@ -164,7 +164,7 @@ def _groq_chat(system, user, model, api_key, temperature, max_tokens, json_mode)
 
 def _openrouter_chat(system, user, model, api_key, temperature, max_tokens, json_mode):
     # Optional OpenRouter ranking headers — harmless, help attribute usage.
-    extra = {"HTTP-Referer": "https://github.com/azwandi/kira", "X-Title": "Kira"}
+    extra = {"HTTP-Referer": "https://github.com/azwandi/kira-payroll-rag", "X-Title": "Kira"}
     return _openai_compatible_chat("OpenRouter", OPENROUTER_ENDPOINT, api_key, system, user,
                                    model, temperature, max_tokens, json_mode,
                                    extra_headers=extra)
