@@ -1,0 +1,223 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kira — Malaysian statutory payroll reference</title>
+<style>
+  :root{
+    --paper:#f4efe4; --panel:#faf6ec; --ink:#232019; --muted:#6f6656; --faint:#a99e88;
+    --rule:#ddd3c0; --rule-dk:#c8bca4;
+    --grounded:#1f4a3b;  --grounded-wash:#eef1e9;
+    --notcov:#6a6153;    --notcov-wash:#ece7db;
+    --referred:#8a5a1c;  --referred-wash:#f4ecda;
+    --serif:"Charter","Iowan Old Style","Palatino Linotype",Palatino,Georgia,serif;
+    --display:"Superclarendon","Iowan Old Style","Charter",Georgia,"Times New Roman",serif;
+    --mono:"SF Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0}
+  body{
+    background:var(--paper); color:var(--ink); font-family:var(--serif);
+    font-size:18px; line-height:1.62; -webkit-font-smoothing:antialiased;
+    padding:64px 24px 120px;
+  }
+  /* faint paper grain */
+  body::before{content:""; position:fixed; inset:0; z-index:0; pointer-events:none; opacity:.5;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.035'/%3E%3C/svg%3E");}
+  .wrap{max-width:660px; margin:0 auto; position:relative; z-index:1}
+
+  /* masthead */
+  header{margin-bottom:40px}
+  .mast{display:flex; align-items:flex-end; justify-content:space-between; gap:16px}
+  h1{font-family:var(--display); font-weight:600; font-size:52px; letter-spacing:-.01em;
+    line-height:.95; margin:0}
+  .est{font-family:var(--mono); font-size:10.5px; letter-spacing:.16em; text-transform:uppercase;
+    color:var(--faint); text-align:right; line-height:1.7}
+  .rule{height:0; border:0; border-top:1.5px solid var(--ink); margin:16px 0 6px}
+  .rule.thin{border-top:1px solid var(--rule)}
+  .subtitle{font-family:var(--mono); font-size:11px; letter-spacing:.16em; text-transform:uppercase;
+    color:var(--muted); margin:0 0 14px}
+  .lede{margin:0; color:var(--muted); font-size:16px; max-width:52ch}
+  .lede em{color:var(--ink); font-style:italic}
+
+  /* ask — a ledger line, not a boxed card */
+  form{margin:34px 0 8px}
+  .field{display:flex; align-items:baseline; gap:12px; border-bottom:1.5px solid var(--ink);
+    padding:2px 0 8px; transition:border-color .2s}
+  .field:focus-within{border-color:var(--grounded)}
+  .field .caret{font-family:var(--mono); color:var(--grounded); font-size:16px}
+  textarea{flex:1; border:0; background:transparent; resize:none; font-family:var(--serif);
+    font-size:19px; line-height:1.45; color:var(--ink); outline:none; padding:0; min-height:1.5em;
+    overflow:hidden}
+  textarea::placeholder{color:var(--faint); font-style:italic}
+  button.ask{background:transparent; border:0; color:var(--grounded); font-family:var(--mono);
+    font-size:11px; letter-spacing:.14em; text-transform:uppercase; cursor:pointer; padding:4px 2px;
+    align-self:flex-end}
+  button.ask:hover{text-decoration:underline; text-underline-offset:3px}
+  button.ask:disabled{color:var(--faint); cursor:default; text-decoration:none}
+  .examples{display:flex; flex-wrap:wrap; gap:6px 18px; margin-top:14px}
+  .chip{font-family:var(--mono); font-size:11px; letter-spacing:.02em; color:var(--muted);
+    background:transparent; border:0; padding:0; cursor:pointer; border-bottom:1px dotted var(--rule-dk)}
+  .chip:hover{color:var(--grounded); border-bottom-color:var(--grounded)}
+
+  /* response */
+  #out{margin-top:40px}
+  .status{font-family:var(--mono); font-size:13px; color:var(--muted); display:flex; gap:10px;
+    align-items:center; margin:36px 0}
+  .status .sp{width:12px;height:12px;border:1.5px solid var(--rule-dk);border-top-color:var(--grounded);
+    border-radius:50%; animation:spin .8s linear infinite}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  .err{font-family:var(--mono); font-size:13px; color:#7a2222; border-top:2px solid #7a2222;
+    padding-top:12px; line-height:1.6}
+
+  .entry{animation:rise .5s cubic-bezier(.2,.7,.2,1) both}
+  @keyframes rise{from{opacity:0; transform:translateY(8px)} to{opacity:1; transform:none}}
+  .kicker{font-family:var(--mono); font-size:11px; letter-spacing:.1em; text-transform:uppercase;
+    color:var(--faint); margin-bottom:10px}
+  .marker{font-family:var(--mono); font-size:12px; letter-spacing:.14em; text-transform:uppercase;
+    display:flex; align-items:center; gap:10px; padding-bottom:12px; border-bottom:2px solid var(--ink)}
+  .marker .gl{font-size:15px; line-height:1}
+  .g-grounded .marker{color:var(--grounded); border-color:var(--grounded)}
+  .g-notcov  .marker{color:var(--notcov);  border-color:var(--notcov)}
+  .g-referred .marker{color:var(--referred); border-color:var(--referred)}
+
+  .answer{font-size:20px; line-height:1.6; margin:20px 0 0}
+  .answer p{margin:0 0 14px} .answer p:last-child{margin-bottom:0}
+  .g-notcov .answer, .g-referred .answer{font-style:italic; color:#3a352c}
+
+  .cite{margin-top:22px; padding:14px 16px; background:var(--panel); border:1px solid var(--rule);
+    display:flex; gap:14px; align-items:baseline}
+  .cite .lab{font-family:var(--mono); font-size:10.5px; letter-spacing:.16em; text-transform:uppercase;
+    color:var(--faint); white-space:nowrap; padding-top:2px}
+  .cite .val{font-family:var(--serif); font-size:16px; font-style:italic}
+  .cite .none{color:var(--faint); font-style:normal; font-family:var(--mono); font-size:13px}
+
+  details.sources{margin-top:22px}
+  details.sources>summary{cursor:pointer; list-style:none; font-family:var(--mono); font-size:11px;
+    letter-spacing:.14em; text-transform:uppercase; color:var(--muted); padding:8px 0;
+    border-top:1px solid var(--rule); user-select:none; display:flex; justify-content:space-between}
+  details.sources>summary::-webkit-details-marker{display:none}
+  details.sources>summary .tw::after{content:"[ + ]"}
+  details.sources[open]>summary .tw::after{content:"[ − ]"}
+  .src{display:grid; grid-template-columns:auto 1fr auto; gap:6px 14px; align-items:baseline;
+    padding:14px 0; border-top:1px solid var(--rule)}
+  .src .no{font-family:var(--mono); font-size:12px; color:var(--faint)}
+  .src .code{grid-column:2; font-family:var(--mono); font-size:10px; letter-spacing:.1em;
+    text-transform:uppercase; border:1px solid var(--rule-dk); padding:1px 6px; border-radius:2px;
+    color:var(--muted); justify-self:start}
+  .src .lbl{grid-column:2; font-family:var(--serif); font-size:15px; font-style:italic; color:var(--ink)}
+  .src .met{grid-column:3; grid-row:1/3; text-align:right; font-family:var(--mono); font-size:12px;
+    color:var(--muted); align-self:center}
+  .src .bar{height:2px; width:64px; background:var(--rule); margin-top:5px; margin-left:auto}
+  .src .bar>i{display:block; height:100%; background:var(--grounded)}
+  .src .snip{grid-column:2/4; font-size:15px; color:var(--muted); line-height:1.5; margin-top:2px}
+
+  footer{margin-top:56px; padding-top:14px; border-top:1px solid var(--rule);
+    font-family:var(--mono); font-size:10.5px; letter-spacing:.12em; text-transform:uppercase;
+    color:var(--faint); display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="mast">
+      <h1>Kira</h1>
+      <div class="est">Statutory&nbsp;payroll<br>reference&nbsp;·&nbsp;MY</div>
+    </div>
+    <hr class="rule">
+    <p class="subtitle">EPF&nbsp;·&nbsp;SOCSO&nbsp;·&nbsp;EIS&nbsp;·&nbsp;PCB</p>
+    <p class="lede">Answers are drawn <em>only</em> from official source documents and cite what
+      they use. Kira will not compute a personal figure or offer advice — it points you to the
+      official calculator instead.</p>
+  </header>
+
+  <form id="f">
+    <div class="field">
+      <span class="caret">&gt;</span>
+      <textarea id="q" rows="1" placeholder="Ask about a rate, threshold, rule, or deadline…" autofocus></textarea>
+      <button class="ask" id="go" type="submit">Ask&nbsp;↵</button>
+    </div>
+    <div class="examples">
+      <button type="button" class="chip">What is the SOCSO contribution rate for an employee under 60?</button>
+      <button type="button" class="chip">Calculate my PCB on an RM6,000 salary with two kids</button>
+      <button type="button" class="chip">What is the GST rate in Malaysia?</button>
+    </div>
+  </form>
+
+  <div id="out"></div>
+
+  <footer>
+    <span>Local instance · 127.0.0.1</span>
+    <span id="mdl">retrieval + grounded generation</span>
+  </footer>
+</div>
+
+<script>
+const f=document.getElementById('f'), q=document.getElementById('q'),
+      go=document.getElementById('go'), out=document.getElementById('out'), mdl=document.getElementById('mdl');
+const esc=s=>String(s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+
+const grow=()=>{q.style.height='auto'; q.style.height=q.scrollHeight+'px';};
+q.addEventListener('input',grow);
+document.querySelectorAll('.chip').forEach(c=>c.addEventListener('click',()=>{
+  q.value=c.textContent; grow(); q.focus(); f.requestSubmit();
+}));
+q.addEventListener('keydown',e=>{ if(e.key==='Enter'&&!e.shiftKey){e.preventDefault(); f.requestSubmit();} });
+
+const STATE={
+  none:       {cls:'g-grounded', gl:'§', label:'Grounded answer'},
+  not_covered:{cls:'g-notcov',   gl:'⌀', label:'Not in the source documents'},
+  advice:     {cls:'g-referred', gl:'→', label:'Referred — calculation or advice'},
+};
+
+f.addEventListener('submit', async e=>{
+  e.preventDefault();
+  const question=q.value.trim(); if(!question) return;
+  go.disabled=true;
+  out.innerHTML='<div class="status"><span class="sp"></span>Consulting the source documents…</div>';
+  try{
+    const r=await fetch('/ask',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({question})});
+    const data=await r.json();
+    if(!r.ok) throw new Error(data.detail||('HTTP '+r.status));
+    render(question,data);
+  }catch(err){
+    out.innerHTML='<div class="err">REQUEST FAILED — '+esc(err.message)+
+      '<br>Check that Ollama, Supabase and OPENROUTER_API_KEY are configured.</div>';
+  }finally{ go.disabled=false; }
+});
+
+function render(question,d){
+  if(d.model) mdl.textContent=d.model;
+  const st=STATE[d.refusal_type]||STATE.none;
+  const body=(d.answer||'').split('\n').filter(l=>!/^\s*source:/i.test(l)).join('\n').trim();
+  const paras=body.split(/\n{2,}|\n/).filter(Boolean).map(p=>'<p>'+esc(p)+'</p>').join('') || '<p>(no answer)</p>';
+
+  const cite = (d.source && d.source!=='(none)')
+    ? '<div class="cite"><span class="lab">Source</span><span class="val">'+esc(d.source)+'</span></div>'
+    : '<div class="cite"><span class="lab">Source</span><span class="none">no source cited</span></div>';
+
+  const rows=(d.chunks||[]).map(c=>{
+    const pct=Math.max(0,Math.min(100,Math.round(c.score*100)));
+    return '<div class="src">'
+      +'<span class="no">'+String(c.rank).padStart(2,'0')+'</span>'
+      +'<span class="code">'+esc(c.scheme||'?')+'</span>'
+      +'<span class="met">'+c.score.toFixed(3)+'<span class="bar"><i style="width:'+pct+'%"></i></span></span>'
+      +'<span class="lbl">'+esc(c.source_label||'')+'</span>'
+      +'<span class="snip">'+esc(c.snippet||'')+'…</span>'
+      +'</div>';
+  }).join('');
+
+  out.innerHTML='<div class="entry '+st.cls+'">'
+    +'<div class="kicker">Q · '+esc(question)+'</div>'
+    +'<div class="marker"><span class="gl">'+st.gl+'</span>'+st.label+'</div>'
+    +'<div class="answer">'+paras+'</div>'
+    + cite
+    +'<details class="sources"><summary><span>Retrieved passages · '+(d.chunks||[]).length
+      +'</span><span class="tw"></span></summary>'+rows+'</details>'
+    +'</div>';
+}
+</script>
+</body>
+</html>

@@ -139,8 +139,9 @@ def parse_file(path):
 def embed(text, role="query"):
     """Get an embedding from Ollama, retrying if it is briefly busy/unavailable.
 
-    role selects the nomic task prefix when EMBED_TASK_PREFIXES is on:
-    'document' at ingestion, 'query' at search time. Off by default (raw text)."""
+    role selects the nomic task prefix when EMBED_TASK_PREFIXES is on (the default):
+    'document' at ingestion, 'query' at search time. Set EMBED_TASK_PREFIXES=0 for
+    the raw-text (no-prefix) baseline."""
     if EMBED_TASK_PREFIXES:
         text = TASK_PREFIXES.get(role, "") + text
     last_err = None

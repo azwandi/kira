@@ -2,3 +2,7 @@
 # server and LLM calls go out over plain HTTP, so no model SDKs are needed.
 psycopg2-binary>=2.9
 requests>=2.31
+
+# Local web client (serve.py). Optional — only needed to run the localhost UI.
+fastapi>=0.110
+uvicorn[standard]>=0.29

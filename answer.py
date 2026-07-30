@@ -4,7 +4,7 @@ answer.py — Grounded RAG generation over the kira_chunks index.
 
 Takes a question from the command line, retrieves the top 5 chunks with the same
 embedding + pgvector approach as search.py, then asks an LLM (generation backend
-selected by GEN_BACKEND: groq | gemini | ollama, default groq) to answer
+selected by GEN_BACKEND: openrouter | groq | gemini | ollama) to answer
 *strictly* from those chunks.
 
 The model is instructed to:
@@ -31,7 +31,7 @@ import sys
 
 import ingest   # DB + .env helpers
 import search   # search.search() -> retrieval (reuses the same embedding model)
-import llm      # multi-backend chat client (groq | gemini | ollama)
+import llm      # multi-backend chat client (openrouter | groq | gemini | ollama)
 
 GEN_BACKEND_DEFAULT = "groq"  # override with GEN_BACKEND in .env
 
