@@ -108,6 +108,7 @@ TYPE_A_MARKERS = (
     "not in the provided", "can't provide information", "cannot provide information",
     "can't provide a specific", "cannot provide a specific",
     "can't provide the specific", "cannot provide the specific",
+    "couldn't find", "couldn't find any information", "can't provide the",
 )
 TYPE_B_MARKERS = (
     "can't calculate", "cannot calculate", "can't compute", "cannot compute",
