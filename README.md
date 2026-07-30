@@ -145,6 +145,11 @@ A thin, **localhost-only** web UI over the pipeline — no hosting, no internet 
 (retrieval + grounded generation) and serves a single static page from `static/`.
 `fastapi` and `uvicorn` are included in `requirements.txt`.
 
+<p align="center">
+  <img src="docs/web-client.jpg" width="640"
+       alt="Kira's local web client: a grounded EPF contribution-rate answer with its cited source (KWSP — Employer Mandatory Contribution) and the retrieved passages listed below.">
+</p>
+
 ```bash
 # start it (binds to 127.0.0.1 only)
 ./.venv/bin/uvicorn serve:app --host 127.0.0.1 --port 8000
